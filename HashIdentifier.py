@@ -307,3 +307,138 @@ def identify(raw_input: str) -> list[HashCandidate]:
                 )
             )
         return candidates
+
+    if text.startswith("$"):
+        rest = text[1 :]
+        if "$" in rest:
+            algo_name = rest.split("$", 1)[0]
+            if algo_name and all(c.isalnum() or c in "-_"
+                                 for c in algo_name):
+                return [
+                    HashCandidate(
+                        algorithm = f"PHC string ({algo_name})",
+                        confidence = "low",
+                        reason =
+                        f"`${algo_name}$...` shape — generic PHC, no specific rule",
+                    )
+                ]
+
+    if text.startswith("eyJ"):
+        return [
+            HashCandidate(
+                algorithm = "JWT (not a hash)",
+                confidence = "low",
+                reason =
+                "leading `eyJ` is base64 of `{\"` — JWT, not a hash",
+            )
+        ]
+    if any(c in text for c in "+/=") and len(text) > 8:
+        return [
+            HashCandidate(
+                algorithm = "Base64 blob (not a hash)",
+                confidence = "low",
+                reason = "contains base64-only chars (`+`, `/`, `=`)",
+            )
+        ]
+    return []
+
+def _build_argument_parser() -> argparse.ArgumentParser:
+    """
+    Construct the argparse parser used by main()
+
+    Pulled out into its own function so tests can call it without
+    actually running the CLI. Each argument is documented inline
+    """
+    parser = argparse.ArgumentParser(
+        prog = "hashid",
+        description = (
+            "Identify a hash string by prefix, length, and charset. "
+            "Returns ranked candidates with confidence and reasoning."
+        ),
+    )
+    parser.add_argument(
+        "hash",
+        help =
+        "The hash string to identify (wrap in single quotes if it contains $).",
+    )
+    parser.add_argument(
+        "--top",
+        "-n",
+        type = int,
+        default = 5,
+        help = "Show at most this many candidates (default: 5).",
+    )
+    return parser
+
+
+def _render_table(
+    raw_input: str,
+    candidates: list[HashCandidate],
+    console: Console,
+) -> None:
+    """
+    Print a rich Table showing the identified candidates
+
+    A Table is a bordered grid. We give it three columns: algorithm,
+    confidence (color-coded), and reason
+    """
+    table = Table(
+        title = f"Candidates for: {raw_input.strip()}",
+        title_style = "bold cyan",
+        show_lines = False,
+    )
+    table.add_column("algorithm", style = "bold white", no_wrap = True)
+    table.add_column("confidence", no_wrap = True)
+    table.add_column("reason", style = "dim")
+
+    confidence_colors: dict[Confidence,
+                            str] = {
+                                "high": "green",
+                                "medium": "yellow",
+                                "low": "cyan",
+                            }
+    for candidate in candidates:
+        color = confidence_colors[candidate.confidence]
+        table.add_row(
+            candidate.algorithm,
+            f"[{color}]{candidate.confidence}[/{color}]",
+            candidate.reason,
+        )
+    console.print(table)
+
+
+def main() -> int:
+    """
+    CLI entry point — return an exit code (0 = ok, 1 = nothing found)
+
+    Wrapping the body in a function (instead of running at module
+    import time) means the test suite can import this module without
+    accidentally executing the CLI
+    """
+    parser = _build_argument_parser()
+    args = parser.parse_args()
+    console = Console()
+
+    candidates = identify(args.hash)
+
+    if not candidates:
+        console.print(
+            "[red]No identification possible.[/red] "
+            "Input did not match any known prefix, special format, "
+            "or hex length."
+        )
+        return 1
+
+    trimmed = candidates[: args.top]
+    _render_table(args.hash, trimmed, console)
+
+    if trimmed[0].confidence == "high":
+        console.print(
+            "\n[dim]Next step: try the matching cracker mode "
+            "(see ../../beginner/hash-cracker).[/dim]"
+        )
+
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
