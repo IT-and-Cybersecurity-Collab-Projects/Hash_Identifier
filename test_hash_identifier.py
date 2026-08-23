@@ -9,7 +9,7 @@ import pytest
 
 # Local: our own module. We pull in the public pieces under test —
 # the prefix-rule table, the result dataclass, and the entry function.
-from hash_identifier import PREFIX_RULES, HashCandidate, identify
+from hashidentifier import PREFIX_RULES, HashCandidate, identify
 
 
 
